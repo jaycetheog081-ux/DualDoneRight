@@ -15,7 +15,8 @@ DualDoneRight_FILES = \
 	src/PackageManagerSelector.mm \
 	src/SecondarySystemConfig.mm \
 	src/SecondarySystemInstaller.mm \
-	src/BootBackend.mm
+	src/BootBackend.mm \
+	src/IPSWManager.mm
 
 DualDoneRight_FRAMEWORKS = UIKit Foundation
 DualDoneRight_CFLAGS = -fobjc-arc
