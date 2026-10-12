@@ -1,0 +1,9 @@
+Package: com.dualdoneright.app
+Name: DualDoneRight
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: CoolBooter-inspired dual-boot manager for jailbroken iOS devices.
+Maintainer: DualDoneRight
+Author: DualDoneRight
+Section: Utilities
+Priority: optional
