@@ -1,0 +1,76 @@
+name: Build DualDoneRight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          brew install ldid dpkg xz
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Build rootful application package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export THEOS="$HOME/theos"
+          unset THEOS_PACKAGE_SCHEME
+
+          make clean package FINALPACKAGE=1
+
+          DEB="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
+
+          if [ -z "$DEB" ]; then
+            echo "ERROR: Theos did not produce a .deb package."
+            exit 1
+          fi
+
+          echo "Package metadata:"
+          dpkg-deb -f "$DEB" Package Version Architecture
+
+          mkdir -p build-output
+          cp "$DEB" build-output/DualDoneRight-rootful.deb
+
+      - name: Verify package contents
+        run: |
+          set -euo pipefail
+
+          dpkg-deb --contents build-output/DualDoneRight-rootful.deb
+
+          dpkg-deb --extract \
+            build-output/DualDoneRight-rootful.deb \
+            /tmp/dualdoneright-package
+
+          if [ ! -d /tmp/dualdoneright-package/Applications/DualDoneRight.app ]; then
+            echo "ERROR: Application bundle missing from rootful package."
+            exit 1
+          fi
+
+          echo "Application bundle found."
+
+      - name: Upload rootful Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualDoneRight-rootful-deb
+          path: build-output/DualDoneRight-rootful.deb
+          if-no-files-found: error
+          retention-days: 14
