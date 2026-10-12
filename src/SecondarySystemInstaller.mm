@@ -1,7 +1,6 @@
 #import "SecondarySystemInstaller.h"
 #import "SecondarySystemConfig.h"
 #import "PackageManagerSelector.h"
-#import <sys/stat.h>
 
 static NSString * const DDDRInstallerErrorDomain =
     @"com.dualdoneright.installer";
@@ -26,8 +25,7 @@ static NSString * const DDDRInstallerErrorDomain =
 
     if (self) {
         _lastSummary =
-            @"No secondary system has been configured.\n\n"
-             "A firmware installer and compatible boot backend are not included.";
+            @"No secondary system has been configured.";
     }
 
     return self;
@@ -35,21 +33,23 @@ static NSString * const DDDRInstallerErrorDomain =
 
 - (BOOL)validateSecondaryRootPath:(NSString *)rootPath
                             error:(NSError **)error {
+    BOOL isDirectory = NO;
+
     if (rootPath.length == 0 || ![rootPath isAbsolutePath]) {
         if (error) {
             *error = [NSError errorWithDomain:DDDRInstallerErrorDomain
                                          code:1
                                      userInfo:@{
                 NSLocalizedDescriptionKey:
-                    @"Provide an absolute path to an existing secondary root filesystem."
+                    @"Enter an absolute path to an existing directory."
             }];
         }
         return NO;
     }
 
-    BOOL isDirectory = NO;
     BOOL exists = [[NSFileManager defaultManager]
-        fileExistsAtPath:rootPath isDirectory:&isDirectory];
+        fileExistsAtPath:rootPath
+            isDirectory:&isDirectory];
 
     if (!exists || !isDirectory) {
         if (error) {
@@ -57,8 +57,8 @@ static NSString * const DDDRInstallerErrorDomain =
                                          code:2
                                      userInfo:@{
                 NSLocalizedDescriptionKey:
-                    @"The secondary root path does not exist or is not a directory. "
-                     "This module does not create partitions or install firmware."
+                    @"The specified root directory does not exist. "
+                     "This prototype does not create partitions or install firmware."
             }];
         }
         return NO;
@@ -71,6 +71,7 @@ static NSString * const DDDRInstallerErrorDomain =
                           iosMajorVersion:(NSInteger)version
                           deviceIdentifier:(NSString *)deviceIdentifier
                                      error:(NSError **)error {
+
     if (![self validateSecondaryRootPath:rootPath error:error]) {
         return NO;
     }
@@ -84,6 +85,31 @@ static NSString * const DDDRInstallerErrorDomain =
         return NO;
     }
 
+    NSString *documents = NSSearchPathForDirectoriesInDomains(
+        NSDocumentDirectory,
+        NSUserDomainMask,
+        YES
+    ).firstObject;
+
+    if (documents.length == 0) {
+        if (error) {
+            *error = [NSError errorWithDomain:DDDRInstallerErrorDomain
+                                         code:3
+                                     userInfo:@{
+                NSLocalizedDescriptionKey:
+                    @"Unable to locate the app's Documents directory."
+            }];
+        }
+        return NO;
+    }
+
+    NSURL *configURL = [NSURL fileURLWithPath:
+        [documents stringByAppendingPathComponent:@"SecondarySystem.plist"]];
+
+    if (![config saveToURL:configURL error:error]) {
+        return NO;
+    }
+
     NSString *manager = [[PackageManagerSelector shared]
         nameForIOSMajorVersion:version];
 
@@ -92,20 +118,21 @@ static NSString * const DDDRInstallerErrorDomain =
          "Device: %@\n"
          "Secondary iOS major version: %ld\n"
          "Package manager preference: %@\n"
-         "Root path: %@\n\n"
-         "This records the configuration only. It does not install iOS, "
-         "install %@, modify partitions, or enable dual-booting.",
+         "Root path: %@\n"
+         "Configuration: %@\n\n"
+         "No firmware was installed. No partitions were modified. "
+         "The package manager has not been installed.",
          deviceIdentifier,
          (long)version,
          manager,
          rootPath,
-         manager];
+         configURL.path];
 
     return YES;
 }
 
 - (NSString *)installationSummary {
-    return _lastSummary ?: @"No installation configuration is available.";
+    return _lastSummary ?: @"No configuration is available.";
 }
 
 @end
