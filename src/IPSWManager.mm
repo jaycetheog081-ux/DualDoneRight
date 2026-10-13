@@ -21,9 +21,14 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSURLSessionDownloadTask *downloadTask;
+
 @property (nonatomic, copy) void (^progressHandler)(double progress);
-@property (nonatomic, copy) void (^completionHandler)(NSURL * _Nullable fileURL,
-                                                       NSError * _Nullable error);
+
+@property (nonatomic, copy) void (^completionHandler)(
+    NSURL * _Nullable fileURL,
+    NSError * _Nullable error
+);
+
 @property (nonatomic, assign, readwrite) BOOL isDownloading;
 
 @end
@@ -49,7 +54,7 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
             [NSURLSessionConfiguration defaultSessionConfiguration];
 
         configuration.timeoutIntervalForRequest = 120.0;
-        configuration.timeoutIntervalForResource = 60.0 * 60.0 * 8.0;
+        configuration.timeoutIntervalForResource = 8.0 * 60.0 * 60.0;
         configuration.allowsCellularAccess = YES;
 
         NSOperationQueue *queue = [[NSOperationQueue alloc] init];
@@ -62,6 +67,8 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 
     return self;
 }
+
+#pragma mark - Device and Storage
 
 - (NSString *)deviceIdentifier {
     struct utsname systemInfo;
@@ -92,14 +99,15 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 }
 
 - (BOOL)checkAvailableStorage:(NSError **)error {
-    NSString *path = NSHomeDirectory();
     struct statvfs filesystemInfo;
 
-    if (statvfs(path.fileSystemRepresentation, &filesystemInfo) != 0) {
+    if (statvfs(NSHomeDirectory().fileSystemRepresentation,
+                &filesystemInfo) != 0) {
         if (error) {
             *error = [self errorWithCode:10
                              description:@"Could not determine available storage."];
         }
+
         return NO;
     }
 
@@ -107,7 +115,6 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
         (unsigned long long)filesystemInfo.f_bavail *
         (unsigned long long)filesystemInfo.f_frsize;
 
-    // Leave room for the firmware and temporary download data.
     const unsigned long long requiredBytes =
         3ULL * 1024ULL * 1024ULL * 1024ULL;
 
@@ -116,11 +123,14 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
             *error = [self errorWithCode:11
                 description:@"At least 3 GB of free storage is required before downloading firmware."];
         }
+
         return NO;
     }
 
     return YES;
 }
+
+#pragma mark - Download
 
 - (void)downloadIOS841WithProgress:(void (^)(double))progress
                         completion:(void (^)(NSURL *, NSError *))completion {
@@ -135,7 +145,7 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 
     if (![device isEqualToString:kTargetDevice]) {
         NSString *message = [NSString stringWithFormat:
-            @"This firmware is configured for %@ only. Detected device: %@. No download started.",
+            @"This firmware is configured for %@ only. Detected device: %@.",
             kTargetDevice, device];
 
         completion(nil, [self errorWithCode:2 description:message]);
@@ -153,9 +163,8 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
     self.completionHandler = completion;
     self.isDownloading = YES;
 
-    NSURL *apiURL =
-        [NSURL URLWithString:
-            @"https://api.ipsw.me/v4/device/iPad4,4?type=ipsw"];
+    NSURL *apiURL = [NSURL URLWithString:
+        @"https://api.ipsw.me/v4/device/iPad4,4?type=ipsw"];
 
     NSURLSessionDataTask *metadataTask =
         [self.session dataTaskWithURL:apiURL
@@ -188,7 +197,7 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
         if (jsonError || ![json isKindOfClass:[NSDictionary class]]) {
             [self finishWithURL:nil
                           error:[self errorWithCode:4
-                                       description:@"Could not read firmware metadata."]];
+                                       description:@"Could not parse firmware metadata."]];
             return;
         }
 
@@ -211,8 +220,11 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 
             NSDictionary *firmware = (NSDictionary *)item;
 
-            if ([firmware[@"version"] isEqualToString:kTargetVersion] &&
-                [firmware[@"buildid"] isEqualToString:kTargetBuild]) {
+            NSString *version = firmware[@"version"];
+            NSString *build = firmware[@"buildid"];
+
+            if ([version isEqualToString:kTargetVersion] &&
+                [build isEqualToString:kTargetBuild]) {
                 match = firmware;
                 break;
             }
@@ -221,20 +233,24 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
         if (!match) {
             [self finishWithURL:nil
                           error:[self errorWithCode:6
-                                       description:@"The requested iOS 8.4.1 build was not found."]];
+                                       description:@"iOS 8.4.1 build 12H321 was not found in the firmware metadata."]];
             return;
         }
 
+        /*
+         The API may provide sha1sum rather than sha256.
+         Do not require an API sha256 property here.
+         The downloaded file is independently checked using
+         the known SHA-256 checksum in validateDownloadedIPSWAtURL:.
+         */
+
         NSString *downloadString = match[@"url"];
-        NSString *reportedHash = [match[@"sha256"] lowercaseString];
 
         if (![downloadString isKindOfClass:[NSString class]] ||
-            ![reportedHash isKindOfClass:[NSString class]] ||
-            ![reportedHash isEqualToString:kExpectedSHA256]) {
-
+            downloadString.length == 0) {
             [self finishWithURL:nil
                           error:[self errorWithCode:7
-                                       description:@"Firmware metadata did not match the expected checksum."]];
+                                       description:@"Firmware metadata did not contain a download URL."]];
             return;
         }
 
@@ -244,7 +260,7 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
             ![downloadURL.scheme.lowercaseString isEqualToString:@"https"]) {
             [self finishWithURL:nil
                           error:[self errorWithCode:8
-                                       description:@"The firmware URL is invalid or does not use HTTPS."]];
+                                       description:@"The firmware download URL is invalid or does not use HTTPS."]];
             return;
         }
 
@@ -257,6 +273,8 @@ static NSString * const kIPSWErrorDomain = @"com.dualdoneright.ipsw";
 
     [metadataTask resume];
 }
+
+#pragma mark - Download Progress
 
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
@@ -282,6 +300,8 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     }
 }
 
+#pragma mark - Download Complete
+
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
  didFinishDownloadingToURL:(NSURL *)location {
@@ -296,9 +316,9 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
         return;
     }
 
-    NSString *directoryPath = [self firmwareDirectoryPath];
-    NSURL *directoryURL = [NSURL fileURLWithPath:directoryPath
-                                    isDirectory:YES];
+    NSURL *directoryURL =
+        [NSURL fileURLWithPath:[self firmwareDirectoryPath]
+                  isDirectory:YES];
 
     NSError *directoryError = nil;
 
@@ -354,6 +374,8 @@ didCompleteWithError:(NSError *)error {
     }
 }
 
+#pragma mark - SHA-256 Validation
+
 - (void)validateDownloadedIPSWAtURL:(NSURL *)fileURL
                          completion:(void (^)(BOOL, NSString *))completion {
 
@@ -366,6 +388,7 @@ didCompleteWithError:(NSError *)error {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(NO, @"Could not open the downloaded firmware.");
             });
+
             return;
         }
 
@@ -377,7 +400,8 @@ didCompleteWithError:(NSError *)error {
         @try {
             while (YES) {
                 @autoreleasepool {
-                    NSData *chunk = [handle readDataOfLength:1024 * 1024];
+                    NSData *chunk =
+                        [handle readDataOfLength:1024 * 1024];
 
                     if (chunk.length == 0) {
                         break;
@@ -396,8 +420,10 @@ didCompleteWithError:(NSError *)error {
 
         if (readError) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                completion(NO, @"An error occurred while reading the firmware.");
+                completion(NO,
+                    @"An error occurred while reading the firmware file.");
             });
+
             return;
         }
 
@@ -405,17 +431,19 @@ didCompleteWithError:(NSError *)error {
         CC_SHA256_Final(digest, &context);
 
         NSMutableString *hexDigest =
-            [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+            [NSMutableString stringWithCapacity:
+                CC_SHA256_DIGEST_LENGTH * 2];
 
         for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) {
             [hexDigest appendFormat:@"%02x", digest[i]];
         }
 
         BOOL valid =
-            [hexDigest.lowercaseString isEqualToString:kExpectedSHA256];
+            [hexDigest.lowercaseString
+                isEqualToString:kExpectedSHA256];
 
         NSString *message = valid
-            ? @"SHA-256 verified. The downloaded IPSW matches the expected iOS 8.4.1 firmware."
+            ? @"SHA-256 verified. The IPSW matches the expected firmware."
             : [NSString stringWithFormat:
                 @"SHA-256 mismatch. Expected %@ but received %@.",
                 kExpectedSHA256, hexDigest];
@@ -426,6 +454,8 @@ didCompleteWithError:(NSError *)error {
     });
 }
 
+#pragma mark - Finish
+
 - (void)finishWithURL:(NSURL *)fileURL error:(NSError *)error {
     if (!self.isDownloading) {
         return;
@@ -434,7 +464,8 @@ didCompleteWithError:(NSError *)error {
     self.isDownloading = NO;
     self.downloadTask = nil;
 
-    void (^completion)(NSURL *, NSError *) = self.completionHandler;
+    void (^completion)(NSURL *, NSError *) =
+        self.completionHandler;
 
     self.progressHandler = nil;
     self.completionHandler = nil;
