@@ -3,6 +3,9 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+
     <key>CFBundleDisplayName</key>
     <string>DualDoneRight</string>
 
@@ -12,14 +15,14 @@
     <key>CFBundleIdentifier</key>
     <string>com.dualdoneright.app</string>
 
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
     <key>CFBundleName</key>
     <string>DualDoneRight</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
-
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
 
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
@@ -27,20 +30,30 @@
     <key>CFBundleVersion</key>
     <string>1</string>
 
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-
-    <key>UILaunchScreen</key>
-    <dict/>
-    
-    <key>UIApplicationSupportsIndirectInputEvents</key>
+    <key>LSRequiresIPhoneOS</key>
     <true/>
 
-    <key>UISupportedInterfaceOrientations</key>
+    <key>MinimumOSVersion</key>
+    <string>12.0</string>
+
+    <key>UIDeviceFamily</key>
     <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
+        <integer>1</integer>
+        <integer>2</integer>
     </array>
+
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>appldnld.apple.com</key>
+            <dict>
+                <key>NSIncludesSubdomains</key>
+                <false/>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
 </dict>
 </plist>
